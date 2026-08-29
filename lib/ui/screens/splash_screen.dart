@@ -22,14 +22,17 @@ class _SplashScreenState extends State<SplashScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final splashEndColor = Color.lerp(colorScheme.primary, Colors.black, 0.62)!;
+
     return Scaffold(
       body: Container(
         width: double.infinity,
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [Color(0xFF466365), Color(0xFF1E293B)],
+            colors: [colorScheme.primary, splashEndColor],
           ),
         ),
         child: Column(
@@ -40,22 +43,25 @@ class _SplashScreenState extends State<SplashScreen> {
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.05),
+                color: Colors.white.withValues(alpha: 0.05),
                 shape: BoxShape.circle,
-                border: Border.all(color: const Color(0xFFB49A67).withOpacity(0.3), width: 2),
+                border: Border.all(
+                  color: colorScheme.secondary.withValues(alpha: 0.45),
+                  width: 2,
+                ),
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.insights_rounded, // Modern economic/analytics icon
-                size: 80, 
-                color: Color(0xFFB49A67),
+                size: 80,
+                color: colorScheme.secondary,
               ),
             ),
             const SizedBox(height: 24),
             const Text(
               'أخبار العملات',
               style: TextStyle(
-                color: Colors.white, 
-                fontSize: 32, 
+                color: Colors.white,
+                fontSize: 32,
                 fontWeight: FontWeight.bold,
                 letterSpacing: 1.2,
               ),
@@ -66,26 +72,38 @@ class _SplashScreenState extends State<SplashScreen> {
               style: TextStyle(color: Colors.white70, fontSize: 15),
             ),
             const Spacer(flex: 2),
-            const CircularProgressIndicator(color: Color(0xFFB49A67)),
+            CircularProgressIndicator(color: colorScheme.secondary),
             const SizedBox(height: 40),
             const Text(
               'عمل الطالب: مؤيد حميد',
-              style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500),
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
+              ),
             ),
             const SizedBox(height: 12),
             const Text(
               'بإشراف الدكتور القدير:',
-              style: TextStyle(color: Colors.white70, fontSize: 14, letterSpacing: 1.1),
+              style: TextStyle(
+                color: Colors.white70,
+                fontSize: 14,
+                letterSpacing: 1.1,
+              ),
             ),
             const SizedBox(height: 4),
-            const Text(
+            Text(
               'مازن المصطفى',
               style: TextStyle(
-                color: Color(0xFFB49A67), 
-                fontSize: 28, 
+                color: colorScheme.secondary,
+                fontSize: 28,
                 fontWeight: FontWeight.w900,
                 shadows: [
-                  Shadow(color: Colors.black45, offset: Offset(0, 3), blurRadius: 6)
+                  Shadow(
+                    color: Colors.black45,
+                    offset: Offset(0, 3),
+                    blurRadius: 6,
+                  ),
                 ],
               ),
             ),

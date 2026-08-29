@@ -17,13 +17,10 @@ class CryptoProvider extends ChangeNotifier {
     notifyListeners();
 
     final result = await _service.fetchCryptoPrices();
-    
-    result.fold(
-      (failure) => _errorMessage = failure.message,
-      (data) {
-        _prices = data;
-      },
-    );
+
+    result.fold((failure) => _errorMessage = failure.message, (data) {
+      _prices = data;
+    });
 
     _isLoading = false;
     notifyListeners();

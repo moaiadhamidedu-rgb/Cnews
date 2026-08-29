@@ -9,7 +9,8 @@ class AlertsScreen extends StatefulWidget {
   State<AlertsScreen> createState() => _AlertsScreenState();
 }
 
-class _AlertsScreenState extends State<AlertsScreen> with AutomaticKeepAliveClientMixin {
+class _AlertsScreenState extends State<AlertsScreen>
+    with AutomaticKeepAliveClientMixin {
   final TextEditingController _rateController = TextEditingController();
   String _selectedCurrency = 'USD';
   String _alertType = 'above';
@@ -24,7 +25,9 @@ class _AlertsScreenState extends State<AlertsScreen> with AutomaticKeepAliveClie
     final isArabic = Localizations.localeOf(context).languageCode == 'ar';
 
     return Scaffold(
-      appBar: AppBar(title: Text(isArabic ? 'إدارة التنبيهات' : 'Alert Management')),
+      appBar: AppBar(
+        title: Text(isArabic ? 'إدارة التنبيهات' : 'Alert Management'),
+      ),
       body: Column(
         children: [
           Padding(
@@ -35,7 +38,13 @@ class _AlertsScreenState extends State<AlertsScreen> with AutomaticKeepAliveClie
                 padding: const EdgeInsets.all(16.0),
                 child: Column(
                   children: [
-                    Text(isArabic ? 'إضافة تنبيه جديد' : 'Add New Alert', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    Text(
+                      isArabic ? 'إضافة تنبيه جديد' : 'Add New Alert',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                     const SizedBox(height: 10),
                     Row(
                       children: [
@@ -43,13 +52,16 @@ class _AlertsScreenState extends State<AlertsScreen> with AutomaticKeepAliveClie
                           child: DropdownButton<String>(
                             value: _selectedCurrency,
                             isExpanded: true,
-                            items: ['USD', 'EUR', 'GBP', 'TRY'].map((String value) {
+                            items: ['USD', 'EUR', 'GBP', 'TRY'].map((
+                              String value,
+                            ) {
                               return DropdownMenuItem<String>(
                                 value: value,
                                 child: Text(value),
                               );
                             }).toList(),
-                            onChanged: (val) => setState(() => _selectedCurrency = val!),
+                            onChanged: (val) =>
+                                setState(() => _selectedCurrency = val!),
                           ),
                         ),
                         const SizedBox(width: 10),
@@ -58,24 +70,43 @@ class _AlertsScreenState extends State<AlertsScreen> with AutomaticKeepAliveClie
                             value: _alertType,
                             isExpanded: true,
                             items: [
-                              DropdownMenuItem(value: 'above', child: Text(isArabic ? 'إذا زاد عن' : 'If above')),
-                              DropdownMenuItem(value: 'below', child: Text(isArabic ? 'إذا قل عن' : 'If below')),
+                              DropdownMenuItem(
+                                value: 'above',
+                                child: Text(
+                                  isArabic ? 'إذا زاد عن' : 'If above',
+                                ),
+                              ),
+                              DropdownMenuItem(
+                                value: 'below',
+                                child: Text(
+                                  isArabic ? 'إذا قل عن' : 'If below',
+                                ),
+                              ),
                             ],
-                            onChanged: (val) => setState(() => _alertType = val!),
+                            onChanged: (val) =>
+                                setState(() => _alertType = val!),
                           ),
                         ),
                       ],
                     ),
                     TextField(
                       controller: _rateController,
-                      decoration: InputDecoration(labelText: isArabic ? 'السعر المستهدف (ل.س)' : 'Target Rate (SYP)'),
+                      decoration: InputDecoration(
+                        labelText: isArabic
+                            ? 'السعر المستهدف (ل.س)'
+                            : 'Target Rate (SYP)',
+                      ),
                       keyboardType: TextInputType.number,
                     ),
                     const SizedBox(height: 10),
                     ElevatedButton.icon(
                       onPressed: () {
                         if (_rateController.text.isNotEmpty) {
-                          alertsLogic.addAlert(_selectedCurrency, double.tryParse(_rateController.text) ?? 0, _alertType);
+                          alertsLogic.addAlert(
+                            _selectedCurrency,
+                            double.tryParse(_rateController.text) ?? 0,
+                            _alertType,
+                          );
                           _rateController.clear();
                         }
                       },
@@ -89,20 +120,30 @@ class _AlertsScreenState extends State<AlertsScreen> with AutomaticKeepAliveClie
           ),
           const Divider(),
           Expanded(
-            child: alertsLogic.isLoading 
-              ? const Center(child: CircularProgressIndicator())
-              : alertsLogic.alerts.isEmpty
-                ? Center(child: Text(isArabic ? 'لا توجد تنبيهات حالياً' : 'No alerts yet'))
+            child: alertsLogic.isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : alertsLogic.alerts.isEmpty
+                ? Center(
+                    child: Text(
+                      isArabic ? 'لا توجد تنبيهات حالياً' : 'No alerts yet',
+                    ),
+                  )
                 : ListView.builder(
                     itemCount: alertsLogic.alerts.length,
                     itemBuilder: (context, index) {
                       final alert = alertsLogic.alerts[index];
                       return ListTile(
                         leading: Icon(
-                          alert['alert_type'] == 'above' ? Icons.trending_up : Icons.trending_down,
-                          color: alert['alert_type'] == 'above' ? Colors.red : Colors.green,
+                          alert['alert_type'] == 'above'
+                              ? Icons.trending_up
+                              : Icons.trending_down,
+                          color: alert['alert_type'] == 'above'
+                              ? Colors.red
+                              : Colors.green,
                         ),
-                        title: Text('${isArabic ? "تنبيه" : "Alert"} ${alert['currency_pair']}'),
+                        title: Text(
+                          '${isArabic ? "تنبيه" : "Alert"} ${alert['currency_pair']}',
+                        ),
                         subtitle: Text(
                           '${alert['alert_type'] == 'above' ? (isArabic ? "أعلى من" : "Above") : (isArabic ? "أقل من" : "Below")}: ${alert['target_rate']} ل.س',
                         ),

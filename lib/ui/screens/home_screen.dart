@@ -6,7 +6,9 @@ import 'package:provider/provider.dart';
 import '../../data/models/currency_rate.dart';
 import '../../data/local/settings_provider.dart';
 import '../../Logic/home_provider.dart';
+import '../../Logic/prediction_provider.dart';
 import '../../core/utils/export_service.dart';
+import '../widgets/usd_syp_prediction_card.dart';
 import 'alerts_screen.dart';
 import 'analysis_screen.dart';
 import 'calculate_screen.dart';
@@ -24,28 +26,26 @@ class MainNavigationScreen extends StatefulWidget {
 
 class _MainNavigationScreenState extends State<MainNavigationScreen> {
   int _selectedIndex = 0;
-  
-  final List<Widget> _screens = [
-    const HomeScreen(),
-    const AnalysisScreen(),
-    const CalculateScreen(),
-    const NewsScreen(),
-    const SettingsScreen(),
-  ];
 
   @override
   Widget build(BuildContext context) {
     final settings = Provider.of<SettingsProvider>(context);
     final isArabic = settings.locale.languageCode == 'ar';
 
+    final List<Widget> screens = [
+      const HomeScreen(),
+      AnalysisScreen(isActive: _selectedIndex == 1),
+      CalculateScreen(isActive: _selectedIndex == 2),
+      const NewsScreen(),
+      const SettingsScreen(),
+    ];
+
     return Scaffold(
-      body: IndexedStack(
-        index: _selectedIndex,
-        children: _screens,
-      ),
+      body: IndexedStack(index: _selectedIndex, children: screens),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
-        onDestinationSelected: (index) => setState(() => _selectedIndex = index),
+        onDestinationSelected: (index) =>
+            setState(() => _selectedIndex = index),
         destinations: [
           NavigationDestination(
             icon: const Icon(Icons.currency_exchange_rounded),
@@ -81,9 +81,11 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMixin {
+class _HomeScreenState extends State<HomeScreen>
+    with AutomaticKeepAliveClientMixin {
   final PageController _pageController = PageController(viewportFraction: 0.88);
   int _currentPage = 0;
+  bool _showOtherRates = false;
   Timer? _carouselTimer;
 
   @override
@@ -104,7 +106,7 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
 
   void _startCarousel() {
     _carouselTimer?.cancel();
-    _carouselTimer = Timer.periodic(const Duration(seconds: 4), (timer) {
+    _carouselTimer = Timer.periodic(const Duration(seconds: 6), (timer) {
       if (_pageController.hasClients) {
         _currentPage++;
         _pageController.animateToPage(
@@ -116,10 +118,122 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
     });
   }
 
-  String _formatDuration(int totalSeconds) {
-    int minutes = totalSeconds ~/ 60;
-    int seconds = totalSeconds % 60;
-    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+  Future<void> _showEditRateDialog(
+    CurrencyRate rate,
+    bool isArabic,
+    HomeProvider logic,
+  ) async {
+    var enteredRate = rate.rate.toStringAsFixed(0);
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        icon: const Icon(Icons.science_outlined),
+        title: Text(
+          isArabic ? 'تجربة تنبيه سعر الدولار' : 'Test the USD rate alert',
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              isArabic
+                  ? 'أدخل سعرًا يحقق شرط التنبيه النشط الذي أنشأته، وسيتم فحص التنبيهات فورًا.'
+                  : 'Enter a rate that meets an active alert condition. Alerts will be checked immediately.',
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              initialValue: enteredRate,
+              onChanged: (value) => enteredRate = value,
+              autofocus: true,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              decoration: InputDecoration(
+                labelText: isArabic ? 'سعر الدولار التجريبي' : 'Demo USD rate',
+                prefixIcon: const Icon(Icons.attach_money_rounded),
+                suffixText: 'ل.س',
+                border: const OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.info_outline, size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    isArabic
+                        ? 'التعديل محلي ومؤقت، ويعود السعر الرسمي عند تحديث البيانات.'
+                        : 'This is local and temporary. Refreshing restores the official rate.',
+                    style: Theme.of(dialogContext).textTheme.bodySmall,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(isArabic ? 'إلغاء' : 'Cancel'),
+          ),
+          FilledButton.icon(
+            onPressed: () async {
+              final newRate = double.tryParse(enteredRate);
+              if (newRate == null || !newRate.isFinite || newRate <= 0) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      isArabic
+                          ? 'أدخل سعرًا صحيحًا أكبر من صفر.'
+                          : 'Enter a valid rate greater than zero.',
+                    ),
+                  ),
+                );
+                return;
+              }
+              Navigator.pop(dialogContext);
+              try {
+                final triggered = await logic.updateManualRate(
+                  rate.code,
+                  newRate,
+                );
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      triggered > 0
+                          ? (isArabic
+                                ? 'نجحت التجربة: تم إرسال تنبيه السعر.'
+                                : 'Demo succeeded: a rate notification was sent.')
+                          : (isArabic
+                                ? 'تم تعديل السعر، لكن لا يوجد تنبيه نشط يطابق هذا السعر.'
+                                : 'Rate changed, but no active alert matches it.'),
+                    ),
+                  ),
+                );
+              } catch (_) {
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      isArabic
+                          ? 'تم تعديل السعر، لكن تعذر إرسال الإشعار.'
+                          : 'Rate changed, but the notification could not be sent.',
+                    ),
+                  ),
+                );
+              }
+            },
+            icon: const Icon(Icons.notifications_active_outlined),
+            label: Text(
+              isArabic ? 'تطبيق واختبار التنبيه' : 'Apply and test alert',
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -130,11 +244,15 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
     final homeLogic = Provider.of<HomeProvider>(context);
     final screenSize = MediaQuery.of(context).size;
     final isTablet = screenSize.width > 600;
-    
+    final usdRate = _findUsdRate(homeLogic);
+
     return Scaffold(
       backgroundColor: theme.colorScheme.surface,
       body: RefreshIndicator(
-        onRefresh: () => homeLogic.refreshRates(),
+        onRefresh: () => Future.wait([
+          homeLogic.refreshRates(),
+          context.read<PredictionProvider>().loadPrediction(),
+        ]),
         child: CustomScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           slivers: [
@@ -147,7 +265,10 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
                 background: Container(
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
-                      colors: [theme.colorScheme.primary, const Color(0xFF1E293B)],
+                      colors: [
+                        theme.colorScheme.primary,
+                        const Color(0xFF1E293B),
+                      ],
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                     ),
@@ -159,38 +280,47 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
                       Text(
                         isArabic ? 'أخبار العملات' : 'Currency News',
                         style: TextStyle(
-                          color: Colors.white, 
-                          fontSize: isTablet ? 26 : 20, 
-                          fontWeight: FontWeight.bold
+                          color: Colors.white,
+                          fontSize: isTablet ? 26 : 20,
+                          fontWeight: FontWeight.bold,
                         ),
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        isArabic 
-                          ? 'تحديث تلقائي خلال: ${_formatDuration(homeLogic.secondsRemaining)}' 
-                          : 'Auto update in: ${_formatDuration(homeLogic.secondsRemaining)}',
-                        style: const TextStyle(color: Colors.white70, fontSize: 12),
-                      ),
-                    if (homeLogic.topRates.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: Text(
-                          '${isArabic ? "آخر تحديث للأسعار:" : "Prices last update:"} ${DateFormat('HH:mm').format(homeLogic.topRates.first.timestamp)}',
-                          style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 10),
+                      if (homeLogic.topRates.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text(
+                            '${isArabic ? "آخر تحديث للأسعار:" : "Prices last update:"} ${DateFormat('HH:mm').format(homeLogic.topRates.first.timestamp)}',
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.4),
+                              fontSize: 10,
+                            ),
+                          ),
                         ),
-                      ),
                       const SizedBox(height: 10),
                       Expanded(
-                        child: homeLogic.isLoadingTop 
-                          ? const Center(child: CircularProgressIndicator(color: Colors.white))
-                          : homeLogic.topRates.isEmpty
+                        child: homeLogic.isLoadingTop
+                            ? const Center(
+                                child: CircularProgressIndicator(
+                                  color: Colors.white,
+                                ),
+                              )
+                            : homeLogic.topRates.isEmpty
                             ? Center(
                                 child: Column(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
-                                    const Icon(Icons.error_outline, color: Colors.white54),
+                                    const Icon(
+                                      Icons.error_outline,
+                                      color: Colors.white54,
+                                    ),
                                     const SizedBox(height: 8),
-                                    Text(isArabic ? 'لا توجد بيانات' : 'No data', style: const TextStyle(color: Colors.white54, fontSize: 12)),
+                                    Text(
+                                      isArabic ? 'لا توجد بيانات' : 'No data',
+                                      style: const TextStyle(
+                                        color: Colors.white54,
+                                        fontSize: 12,
+                                      ),
+                                    ),
                                   ],
                                 ),
                               )
@@ -199,29 +329,46 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
                                   Expanded(
                                     child: PageView.builder(
                                       controller: _pageController,
-                                      onPageChanged: (index) => setState(() => _currentPage = index),
+                                      onPageChanged: (index) =>
+                                          setState(() => _currentPage = index),
                                       itemBuilder: (context, index) {
-                                        final rate = homeLogic.topRates[index % homeLogic.topRates.length];
-                                        return _buildGlassCard(rate, isArabic, homeLogic);
+                                        final rate =
+                                            homeLogic.topRates[index %
+                                                homeLogic.topRates.length];
+                                        return _buildGlassCard(
+                                          rate,
+                                          isArabic,
+                                          homeLogic,
+                                        );
                                       },
                                     ),
                                   ),
                                   const SizedBox(height: 10),
                                   Row(
                                     mainAxisAlignment: MainAxisAlignment.center,
-                                    children: List.generate(homeLogic.topRates.length, (index) {
-                                      return Container(
-                                        margin: const EdgeInsets.symmetric(horizontal: 4),
-                                        width: 8,
-                                        height: 8,
-                                        decoration: BoxDecoration(
-                                          shape: BoxShape.circle,
-                                          color: (_currentPage % homeLogic.topRates.length) == index 
-                                              ? theme.colorScheme.secondary 
-                                              : Colors.white24,
-                                        ),
-                                      );
-                                    }),
+                                    children: List.generate(
+                                      homeLogic.topRates.length,
+                                      (index) {
+                                        return Container(
+                                          margin: const EdgeInsets.symmetric(
+                                            horizontal: 4,
+                                          ),
+                                          width: 8,
+                                          height: 8,
+                                          decoration: BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            color:
+                                                (_currentPage %
+                                                        homeLogic
+                                                            .topRates
+                                                            .length) ==
+                                                    index
+                                                ? theme.colorScheme.secondary
+                                                : Colors.white24,
+                                          ),
+                                        );
+                                      },
+                                    ),
                                   ),
                                 ],
                               ),
@@ -240,27 +387,117 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.wifi_off_rounded, size: 16, color: Colors.orange.shade900),
+                      Icon(
+                        Icons.wifi_off_rounded,
+                        size: 16,
+                        color: Colors.orange.shade900,
+                      ),
                       const SizedBox(width: 8),
                       Text(
-                        homeLogic.errorMessage != null 
-                          ? (isArabic ? 'خطأ: ${homeLogic.errorMessage}' : 'Error: ${homeLogic.errorMessage}')
-                          : (isArabic ? 'أنت تعمل في وضع الأوفلاين' : 'You are working offline'), 
-                        style: TextStyle(color: Colors.orange.shade900, fontSize: 12),
+                        homeLogic.errorMessage != null
+                            ? (isArabic
+                                  ? 'خطأ: ${homeLogic.errorMessage}'
+                                  : 'Error: ${homeLogic.errorMessage}')
+                            : (isArabic
+                                  ? 'أنت تعمل في وضع الأوفلاين'
+                                  : 'You are working offline'),
+                        style: TextStyle(
+                          color: Colors.orange.shade900,
+                          fontSize: 12,
+                        ),
                       ),
                     ],
                   ),
                 ),
               ),
-            
+
+            const SliverToBoxAdapter(child: UsdSypPredictionCard()),
+
+            if (usdRate != null)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+                  child: Material(
+                    color: theme.colorScheme.primaryContainer.withValues(
+                      alpha: 0.55,
+                    ),
+                    borderRadius: BorderRadius.circular(18),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(18),
+                      onTap: () =>
+                          _showEditRateDialog(usdRate, isArabic, homeLogic),
+                      child: Padding(
+                        padding: const EdgeInsets.all(14),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 44,
+                              height: 44,
+                              decoration: BoxDecoration(
+                                color: theme.colorScheme.primary,
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: const Icon(
+                                Icons.science_outlined,
+                                color: Colors.white,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    isArabic
+                                        ? 'عدل سعر الدولار يدوي'
+                                        : 'Edit USD rate manually',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 15,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    isArabic
+                                        ? 'عدّل سعر الدولار مؤقتًا واختبر التنبيه'
+                                        : 'Temporarily change USD and test an alert',
+                                    style: TextStyle(
+                                      color: theme.colorScheme.onSurfaceVariant,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Icon(
+                              Icons.chevron_right_rounded,
+                              color: theme.colorScheme.primary,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
             SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 10.0),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20.0,
+                  vertical: 10.0,
+                ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     TextButton.icon(
-                      onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const MetalsScreen())),
+                      onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const MetalsScreen(),
+                        ),
+                      ),
                       icon: const Icon(Icons.auto_awesome),
                       label: Text(
                         isArabic ? 'أسعار المعادن' : 'Metal Prices',
@@ -271,7 +508,12 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
                       ),
                     ),
                     TextButton.icon(
-                      onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const CryptoScreen())),
+                      onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const CryptoScreen(),
+                        ),
+                      ),
                       icon: const Icon(Icons.currency_bitcoin_rounded),
                       label: Text(
                         isArabic ? 'أسعار الكريبتو' : 'Crypto Prices',
@@ -285,32 +527,71 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
                 ),
               ),
             ),
-    
-            SliverPadding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              sliver: SliverList(
-                delegate: SliverChildBuilderDelegate(
-                  (context, index) {
-                    final rates = homeLogic.allRates.isNotEmpty ? homeLogic.allRates : homeLogic.topRates;
+
+            if (homeLogic.otherRates.isNotEmpty)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.tonalIcon(
+                      onPressed: () =>
+                          setState(() => _showOtherRates = !_showOtherRates),
+                      icon: AnimatedRotation(
+                        turns: _showOtherRates ? 0.5 : 0,
+                        duration: const Duration(milliseconds: 250),
+                        child: const Icon(Icons.keyboard_arrow_down_rounded),
+                      ),
+                      label: Text(
+                        _showOtherRates
+                            ? (isArabic
+                                  ? 'إخفاء باقي العملات'
+                                  : 'Hide other currencies')
+                            : (isArabic
+                                  ? 'عرض باقي العملات (${homeLogic.otherRates.length})'
+                                  : 'Show other currencies (${homeLogic.otherRates.length})'),
+                        style: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
+            if (_showOtherRates)
+              SliverPadding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                sliver: SliverList(
+                  delegate: SliverChildBuilderDelegate((context, index) {
+                    final rates = homeLogic.otherRates;
                     if (index >= rates.length) return null;
                     final rate = rates[index];
                     return _buildCurrencyItem(rate, isArabic, homeLogic);
-                  },
-                  childCount: homeLogic.allRates.isNotEmpty ? homeLogic.allRates.length : homeLogic.topRates.length,
+                  }, childCount: homeLogic.otherRates.length),
                 ),
               ),
-            ),
-            
+
             if (homeLogic.allRates.isEmpty && homeLogic.topRates.isEmpty)
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.all(40.0),
                   child: Column(
                     children: [
-                      Icon(Icons.currency_exchange, size: 60, color: Colors.grey.shade300),
+                      Icon(
+                        Icons.currency_exchange,
+                        size: 60,
+                        color: Colors.grey.shade300,
+                      ),
                       const SizedBox(height: 10),
                       Text(
-                        isArabic ? 'جاري تحميل أسعار العملات...' : 'Loading currency rates...',
+                        isArabic
+                            ? 'جاري تحميل أسعار العملات...'
+                            : 'Loading currency rates...',
                         textAlign: TextAlign.center,
                         style: const TextStyle(color: Colors.grey),
                       ),
@@ -324,7 +605,10 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
       ),
       floatingActionButton: FloatingActionButton.extended(
         heroTag: 'alerts',
-        onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const AlertsScreen())),
+        onPressed: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => const AlertsScreen()),
+        ),
         backgroundColor: theme.colorScheme.primary,
         foregroundColor: Colors.white,
         elevation: 4,
@@ -344,40 +628,47 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
           filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
           child: Container(
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.08),
+              color: Colors.white.withValues(alpha: 0.08),
               borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: Colors.white.withOpacity(0.15)),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
             ),
             child: Column(
               children: [
                 Padding(
-                  padding: const EdgeInsets.all(20.0),
+                  padding: const EdgeInsets.fromLTRB(20, 15, 20, 10),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            logic.getCurrencyName(rate.code, isArabic),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: AlignmentDirectional.centerStart,
+                              child: Text(
+                                logic.getCurrencyName(rate.code, isArabic),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
                             ),
-                          ),
-                          Text(
-                            '${rate.code} / ${isArabic ? "ليرة سورية" : "SYP"}',
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.5),
-                              fontSize: 13,
+                            Text(
+                              '${rate.code} / ${isArabic ? "ليرة سورية" : "SYP"}',
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.5),
+                                fontSize: 12,
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
+                      const SizedBox(width: 10),
                       Text(
                         logic.getCurrencyEmoji(rate.code),
-                        style: const TextStyle(fontSize: 42),
+                        style: const TextStyle(fontSize: 36),
                       ),
                     ],
                   ),
@@ -385,65 +676,106 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   child: Divider(
-                    color: Colors.white.withOpacity(0.1),
+                    color: Colors.white.withValues(alpha: 0.1),
                     height: 1,
                   ),
                 ),
                 Expanded(
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          isArabic ? 'السعر الوسطي للسوق' : 'Market midpoint',
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.65),
+                            fontSize: 11,
+                          ),
+                        ),
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            NumberFormat('#,##0.##').format(rate.rate),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 26,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
                           children: [
-                            Text(
-                              isArabic ? 'مبيع' : 'Sell',
-                              style: TextStyle(
-                                color: Colors.white.withOpacity(0.6),
-                                fontSize: 13,
+                            Expanded(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Text(
+                                    isArabic ? 'مبيع' : 'Sell',
+                                    style: TextStyle(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.6,
+                                      ),
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  FittedBox(
+                                    fit: BoxFit.scaleDown,
+                                    child: Text(
+                                      NumberFormat(
+                                        '#,##0.##',
+                                      ).format(rate.sell ?? rate.rate),
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
-                            const SizedBox(height: 4),
-                            Text(
-                              NumberFormat('#,###').format(rate.sell ?? rate.rate),
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 24,
-                                fontWeight: FontWeight.w900,
+                            Container(
+                              width: 1,
+                              height: 25,
+                              color: Colors.white.withValues(alpha: 0.1),
+                            ),
+                            Expanded(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Text(
+                                    isArabic ? 'شراء' : 'Buy',
+                                    style: TextStyle(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.6,
+                                      ),
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  FittedBox(
+                                    fit: BoxFit.scaleDown,
+                                    child: Text(
+                                      NumberFormat(
+                                        '#,##0.##',
+                                      ).format(rate.buy ?? rate.rate),
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           ],
                         ),
-                      ),
-                      Container(
-                        width: 1,
-                        height: 30,
-                        color: Colors.white.withOpacity(0.1),
-                      ),
-                      Expanded(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              isArabic ? 'شراء' : 'Buy',
-                              style: TextStyle(
-                                color: Colors.white.withOpacity(0.6),
-                                fontSize: 13,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              NumberFormat('#,###').format(rate.buy ?? rate.rate),
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 24,
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ],
@@ -454,7 +786,11 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
     );
   }
 
-  Widget _buildCurrencyItem(CurrencyRate rate, bool isArabic, HomeProvider logic) {
+  Widget _buildCurrencyItem(
+    CurrencyRate rate,
+    bool isArabic,
+    HomeProvider logic,
+  ) {
     final theme = Theme.of(context);
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -463,18 +799,21 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.03),
+            color: Colors.black.withValues(alpha: 0.03),
             blurRadius: 10,
             offset: const Offset(0, 4),
-          )
+          ),
         ],
-        border: Border.all(color: theme.colorScheme.outline.withOpacity(0.05)),
+        border: Border.all(
+          color: theme.colorScheme.outline.withValues(alpha: 0.05),
+        ),
       ),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
           borderRadius: BorderRadius.circular(20),
-          onLongPress: () => ExportService.shareRate(rate.code, rate.rate, isArabic),
+          onLongPress: () => _showEditRateDialog(rate, isArabic, logic),
+          onTap: () => ExportService.shareRate(rate.code, rate.rate, isArabic),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             child: Row(
@@ -483,11 +822,14 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
                   width: 52,
                   height: 52,
                   decoration: BoxDecoration(
-                    color: theme.colorScheme.primary.withOpacity(0.05),
+                    color: theme.colorScheme.primary.withValues(alpha: 0.05),
                     shape: BoxShape.circle,
                   ),
                   child: Center(
-                    child: Text(logic.getCurrencyEmoji(rate.code), style: const TextStyle(fontSize: 28)),
+                    child: Text(
+                      logic.getCurrencyEmoji(rate.code),
+                      style: const TextStyle(fontSize: 28),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 15),
@@ -497,11 +839,19 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
                     children: [
                       Text(
                         rate.code,
-                        style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 18,
+                        ),
                       ),
                       Text(
-                        isArabic ? 'الليرة السورية' : 'Syrian Lira',
-                        style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                        isArabic
+                            ? 'متوسط السوق مقابل الليرة السورية'
+                            : 'Market midpoint vs SYP',
+                        style: TextStyle(
+                          color: Colors.grey.shade500,
+                          fontSize: 12,
+                        ),
                       ),
                     ],
                   ),
@@ -510,7 +860,7 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Text(
-                      '${NumberFormat('#,###').format(rate.rate)}',
+                      NumberFormat('#,###').format(rate.rate),
                       style: TextStyle(
                         color: theme.colorScheme.primary,
                         fontWeight: FontWeight.w900,
@@ -521,12 +871,20 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
                       children: [
                         Text(
                           '${isArabic ? "شراء" : "B"}: ${NumberFormat('#,###').format(rate.buy ?? 0)}',
-                          style: TextStyle(fontSize: 10, color: Colors.green.shade700, fontWeight: FontWeight.bold),
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Colors.green.shade700,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                         const SizedBox(width: 8),
                         Text(
                           '${isArabic ? "مبيع" : "S"}: ${NumberFormat('#,###').format(rate.sell ?? 0)}',
-                          style: TextStyle(fontSize: 10, color: Colors.red.shade700, fontWeight: FontWeight.bold),
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Colors.red.shade700,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ],
                     ),
@@ -538,5 +896,15 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
         ),
       ),
     );
+  }
+
+  CurrencyRate? _findUsdRate(HomeProvider logic) {
+    for (final rate in logic.topRates) {
+      if (rate.code == 'USD') return rate;
+    }
+    for (final rate in logic.allRates) {
+      if (rate.code == 'USD') return rate;
+    }
+    return null;
   }
 }

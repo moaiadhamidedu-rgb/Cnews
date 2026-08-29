@@ -8,15 +8,38 @@ import '../../core/utils/export_service.dart';
 import '../../data/local/database_helper.dart';
 
 class AnalysisScreen extends StatefulWidget {
-  const AnalysisScreen({super.key});
+  const AnalysisScreen({super.key, this.isActive = true});
+
+  final bool isActive;
 
   @override
   State<AnalysisScreen> createState() => _AnalysisScreenState();
 }
 
-class _AnalysisScreenState extends State<AnalysisScreen> with AutomaticKeepAliveClientMixin {
+class _AnalysisScreenState extends State<AnalysisScreen>
+    with AutomaticKeepAliveClientMixin {
   @override
   bool get wantKeepAlive => true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadWhenActive();
+  }
+
+  @override
+  void didUpdateWidget(covariant AnalysisScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!oldWidget.isActive && widget.isActive) _loadWhenActive();
+  }
+
+  void _loadWhenActive() {
+    if (!widget.isActive) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      Provider.of<AnalysisProvider>(context, listen: false).ensureLoaded();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -31,43 +54,57 @@ class _AnalysisScreenState extends State<AnalysisScreen> with AutomaticKeepAlive
         title: Text(isArabic ? 'تحليل الأسعار المباشر' : 'Live Analysis'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.picture_as_pdf_outlined),
+            icon: const Icon(Icons.ios_share_rounded),
             onPressed: () => _showExportOptions(context, isArabic),
-          )
+            tooltip: isArabic ? 'تصدير التقرير' : 'Export Report',
+          ),
         ],
       ),
-      body: analysisLogic.isLoading 
-        ? const Center(child: CircularProgressIndicator())
-        : RefreshIndicator(
-            onRefresh: analysisLogic.loadData,
-            child: SingleChildScrollView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.symmetric(vertical: 20),
-              child: Column(
-                children: [
-                  _buildFilters(isArabic, theme, analysisLogic),
-                  const SizedBox(height: 10),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(isArabic ? 'السعر الحالي' : 'Current Price', style: const TextStyle(color: Colors.grey)),
-                        Text('${NumberFormat('#,###').format(analysisLogic.currentPrice)} ل.س', 
-                          style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: theme.colorScheme.primary)),
-                      ],
+      body: analysisLogic.isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : RefreshIndicator(
+              onRefresh: analysisLogic.loadData,
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.symmetric(vertical: 20),
+                child: Column(
+                  children: [
+                    _buildFilters(isArabic, theme, analysisLogic),
+                    const SizedBox(height: 10),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            isArabic ? 'السعر الحالي' : 'Current Price',
+                            style: const TextStyle(color: Colors.grey),
+                          ),
+                          Text(
+                            '${NumberFormat('#,##0.##').format(analysisLogic.currentPrice)} ل.س',
+                            style: TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.bold,
+                              color: theme.colorScheme.primary,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 20),
-                  _buildLegend(theme, isArabic, analysisLogic.selectedCurrency),
-                  _buildChartCard(theme, isArabic, analysisLogic),
-                  const SizedBox(height: 24),
-                  _buildSummaryCard(theme, isArabic, analysisLogic),
-                  const SizedBox(height: 100),
-                ],
+                    const SizedBox(height: 20),
+                    _buildLegend(
+                      theme,
+                      isArabic,
+                      analysisLogic.selectedCurrency,
+                    ),
+                    _buildChartCard(theme, isArabic, analysisLogic),
+                    const SizedBox(height: 24),
+                    _buildSummaryCard(theme, isArabic, analysisLogic),
+                    const SizedBox(height: 100),
+                  ],
+                ),
               ),
             ),
-          ),
     );
   }
 
@@ -81,11 +118,21 @@ class _AnalysisScreenState extends State<AnalysisScreen> with AutomaticKeepAlive
               initialValue: logic.selectedCurrency,
               decoration: InputDecoration(
                 labelText: isArabic ? 'العملة' : 'Currency',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(15)),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(15),
+                ),
                 filled: true,
                 fillColor: theme.colorScheme.surface,
               ),
-              items: ['USD', 'EUR', 'TRY', 'SAR', 'AED', 'JOD', 'EGP'].map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
+              items: [
+                'USD',
+                'EUR',
+                'TRY',
+                'SAR',
+                'AED',
+                'JOD',
+                'EGP',
+              ].map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
               onChanged: (val) => logic.setCurrency(val!),
             ),
           ),
@@ -95,14 +142,25 @@ class _AnalysisScreenState extends State<AnalysisScreen> with AutomaticKeepAlive
               initialValue: logic.selectedPeriod,
               decoration: InputDecoration(
                 labelText: isArabic ? 'الفترة' : 'Period',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(15)),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(15),
+                ),
                 filled: true,
                 fillColor: theme.colorScheme.surface,
               ),
               items: [
-                DropdownMenuItem(value: 'Day', child: Text(isArabic ? 'يوم' : 'Day')),
-                DropdownMenuItem(value: 'Month', child: Text(isArabic ? 'شهر' : 'Month')),
-                DropdownMenuItem(value: 'Year', child: Text(isArabic ? 'سنة' : 'Year')),
+                DropdownMenuItem(
+                  value: 'Day',
+                  child: Text(isArabic ? 'يوم' : 'Day'),
+                ),
+                DropdownMenuItem(
+                  value: 'Month',
+                  child: Text(isArabic ? 'شهر' : 'Month'),
+                ),
+                DropdownMenuItem(
+                  value: 'Year',
+                  child: Text(isArabic ? 'سنة' : 'Year'),
+                ),
               ].toList(),
               onChanged: (val) => logic.setPeriod(val!),
             ),
@@ -120,7 +178,10 @@ class _AnalysisScreenState extends State<AnalysisScreen> with AutomaticKeepAlive
           Container(
             width: 12,
             height: 12,
-            decoration: BoxDecoration(color: theme.colorScheme.primary, shape: BoxShape.circle),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primary,
+              shape: BoxShape.circle,
+            ),
           ),
           const SizedBox(width: 8),
           Text(
@@ -132,10 +193,20 @@ class _AnalysisScreenState extends State<AnalysisScreen> with AutomaticKeepAlive
     );
   }
 
-  Widget _buildChartCard(ThemeData theme, bool isArabic, AnalysisProvider logic) {
-    double intervalX = 4; // Default for Day
-    if (logic.selectedPeriod == 'Month') intervalX = 5;
-    if (logic.selectedPeriod == 'Year') intervalX = 1;
+  Widget _buildChartCard(
+    ThemeData theme,
+    bool isArabic,
+    AnalysisProvider logic,
+  ) {
+    final intervalX = logic.chartData.length > 5
+        ? (logic.chartData.length / 4).ceilToDouble()
+        : 1.0;
+    final yRange = logic.max - logic.min;
+    final yPadding = yRange == 0
+        ? (logic.max == 0 ? 1.0 : logic.max * 0.01)
+        : yRange * 0.15;
+    final minY = (logic.min - yPadding).clamp(0.0, double.infinity);
+    final maxY = logic.max + yPadding;
 
     return Container(
       height: 320,
@@ -144,26 +215,65 @@ class _AnalysisScreenState extends State<AnalysisScreen> with AutomaticKeepAlive
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(30),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 20)],
-        border: Border.all(color: theme.colorScheme.outline.withOpacity(0.1)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 20,
+          ),
+        ],
+        border: Border.all(
+          color: theme.colorScheme.outline.withValues(alpha: 0.1),
+        ),
       ),
-      child: logic.chartData.isEmpty 
-          ? const Center(child: Text('No Data'))
+      child: !logic.hasChart
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.timeline_rounded,
+                      size: 42,
+                      color: theme.colorScheme.outline,
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      isArabic
+                          ? 'لا يوجد سجل سوق حقيقي كافٍ بعد. نحتاج قراءتين مختلفتين على الأقل لرسم المخطط.'
+                          : 'Not enough real market history yet. At least two distinct observations are required.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            )
           : LineChart(
               LineChartData(
+                minY: minY,
+                maxY: maxY,
                 gridData: FlGridData(
                   show: true,
                   drawVerticalLine: false,
-                  getDrawingHorizontalLine: (value) => FlLine(color: theme.colorScheme.outline.withOpacity(0.05), strokeWidth: 1),
+                  getDrawingHorizontalLine: (value) => FlLine(
+                    color: theme.colorScheme.outline.withValues(alpha: 0.05),
+                    strokeWidth: 1,
+                  ),
                 ),
                 titlesData: FlTitlesData(
                   show: true,
                   bottomTitles: AxisTitles(
                     axisNameWidget: Text(
-                      logic.selectedPeriod == 'Day' ? (isArabic ? 'الساعة' : 'Hour') : 
-                      logic.selectedPeriod == 'Month' ? (isArabic ? 'اليوم' : 'Day') : 
-                      (isArabic ? 'الشهر' : 'Month'),
-                      style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
+                      isArabic
+                          ? 'وقت القراءة الفعلية'
+                          : 'Actual observation time',
+                      style: const TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                     axisNameSize: 20,
                     sideTitles: SideTitles(
@@ -171,11 +281,25 @@ class _AnalysisScreenState extends State<AnalysisScreen> with AutomaticKeepAlive
                       reservedSize: 30,
                       interval: intervalX,
                       getTitlesWidget: (value, meta) {
+                        final index = value.round();
+                        if (index < 0 ||
+                            index >= logic.chartTimestamps.length ||
+                            value != index) {
+                          return const SizedBox.shrink();
+                        }
+                        final timestamp = logic.chartTimestamps[index]
+                            .toLocal();
+                        final label = logic.selectedPeriod == 'Day'
+                            ? DateFormat('HH:mm').format(timestamp)
+                            : DateFormat('d/M').format(timestamp);
                         return Padding(
                           padding: const EdgeInsets.only(top: 8.0),
                           child: Text(
-                            value.toInt().toString(),
-                            style: TextStyle(color: Colors.grey.shade500, fontSize: 10),
+                            label,
+                            style: TextStyle(
+                              color: Colors.grey.shade500,
+                              fontSize: 10,
+                            ),
                           ),
                         );
                       },
@@ -184,32 +308,44 @@ class _AnalysisScreenState extends State<AnalysisScreen> with AutomaticKeepAlive
                   leftTitles: AxisTitles(
                     sideTitles: SideTitles(
                       showTitles: true,
-                      reservedSize: 45,
+                      reservedSize: 50,
                       getTitlesWidget: (value, meta) {
-                        if (value == meta.max || value == meta.min) return const SizedBox();
+                        if (value == meta.max || value == meta.min) {
+                          return const SizedBox();
+                        }
                         return Text(
-                          NumberFormat.compact().format(value),
-                          style: TextStyle(color: Colors.grey.shade500, fontSize: 9),
+                          NumberFormat('#,##0.##').format(value),
+                          style: TextStyle(
+                            color: Colors.grey.shade500,
+                            fontSize: 9,
+                          ),
                         );
                       },
                     ),
                   ),
-                  topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                  rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  topTitles: const AxisTitles(
+                    sideTitles: SideTitles(showTitles: false),
+                  ),
+                  rightTitles: const AxisTitles(
+                    sideTitles: SideTitles(showTitles: false),
+                  ),
                 ),
                 borderData: FlBorderData(show: false),
                 lineBarsData: [
                   LineChartBarData(
                     spots: logic.chartData,
-                    isCurved: true,
+                    isCurved: false,
                     color: theme.colorScheme.primary,
                     barWidth: 4,
                     isStrokeCapRound: true,
-                    dotData: const FlDotData(show: true),
+                    dotData: FlDotData(show: logic.chartData.length <= 40),
                     belowBarData: BarAreaData(
                       show: true,
                       gradient: LinearGradient(
-                        colors: [theme.colorScheme.primary.withOpacity(0.2), theme.colorScheme.primary.withOpacity(0)],
+                        colors: [
+                          theme.colorScheme.primary.withValues(alpha: 0.2),
+                          theme.colorScheme.primary.withValues(alpha: 0),
+                        ],
                         begin: Alignment.topCenter,
                         end: Alignment.bottomCenter,
                       ),
@@ -221,12 +357,21 @@ class _AnalysisScreenState extends State<AnalysisScreen> with AutomaticKeepAlive
     );
   }
 
-  Widget _buildSummaryCard(ThemeData theme, bool isArabic, AnalysisProvider logic) {
+  Widget _buildSummaryCard(
+    ThemeData theme,
+    bool isArabic,
+    AnalysisProvider logic,
+  ) {
     return Padding(
       padding: const EdgeInsets.all(16.0),
       child: Card(
         elevation: 0,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24), side: BorderSide(color: theme.colorScheme.outline.withOpacity(0.1))),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(24),
+          side: BorderSide(
+            color: theme.colorScheme.outline.withValues(alpha: 0.1),
+          ),
+        ),
         child: Padding(
           padding: const EdgeInsets.all(24.0),
           child: Column(
@@ -236,15 +381,30 @@ class _AnalysisScreenState extends State<AnalysisScreen> with AutomaticKeepAlive
                 children: [
                   const Icon(Icons.summarize_outlined, size: 20),
                   const SizedBox(width: 8),
-                  Text(isArabic ? 'تقرير التحليل الذكي' : 'Smart Analysis Report', style: const TextStyle(fontWeight: FontWeight.bold)),
+                  Text(
+                    isArabic ? 'تقرير التحليل الذكي' : 'Smart Analysis Report',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
                 ],
               ),
               const SizedBox(height: 20),
-              _rowSummary(isArabic ? 'أعلى سعر مسجل' : 'Highest Recorded', '${NumberFormat('#,###').format(logic.max)}', Colors.redAccent),
+              _rowSummary(
+                isArabic ? 'أعلى سعر مسجل' : 'Highest Recorded',
+                NumberFormat('#,###').format(logic.max),
+                Colors.redAccent,
+              ),
               const Divider(height: 24),
-              _rowSummary(isArabic ? 'أدنى سعر مسجل' : 'Lowest Recorded', '${NumberFormat('#,###').format(logic.min)}', Colors.green),
+              _rowSummary(
+                isArabic ? 'أدنى سعر مسجل' : 'Lowest Recorded',
+                NumberFormat('#,###').format(logic.min),
+                Colors.green,
+              ),
               const Divider(height: 24),
-              _rowSummary(isArabic ? 'متوسط السعر' : 'Average Price', '${NumberFormat('#,###').format(logic.average)}', theme.colorScheme.primary),
+              _rowSummary(
+                isArabic ? 'متوسط السعر' : 'Average Price',
+                NumberFormat('#,###').format(logic.average),
+                theme.colorScheme.primary,
+              ),
             ],
           ),
         ),
@@ -257,7 +417,14 @@ class _AnalysisScreenState extends State<AnalysisScreen> with AutomaticKeepAlive
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text(label, style: const TextStyle(color: Colors.grey, fontSize: 13)),
-        Text('$value ل.س', style: TextStyle(fontWeight: FontWeight.bold, color: color, fontSize: 15)),
+        Text(
+          '$value ل.س',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: color,
+            fontSize: 15,
+          ),
+        ),
       ],
     );
   }
@@ -265,7 +432,7 @@ class _AnalysisScreenState extends State<AnalysisScreen> with AutomaticKeepAlive
   void _showExportOptions(BuildContext context, bool isArabic) {
     final logic = Provider.of<AnalysisProvider>(context, listen: false);
     final db = DatabaseHelper();
-    
+
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -279,9 +446,22 @@ class _AnalysisScreenState extends State<AnalysisScreen> with AutomaticKeepAlive
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(10))),
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
               const SizedBox(height: 20),
-              Text(isArabic ? 'تصدير التقرير الفني' : 'Export Technical Report', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              Text(
+                isArabic ? 'تصدير التقرير الفني' : 'Export Technical Report',
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
               const SizedBox(height: 30),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -289,15 +469,22 @@ class _AnalysisScreenState extends State<AnalysisScreen> with AutomaticKeepAlive
                   GestureDetector(
                     onTap: () async {
                       Navigator.pop(context);
-                      final history = await db.getHistory(logic.selectedCurrency, logic.selectedPeriod);
-                      ExportService.exportToPDF(logic.selectedCurrency, history, isArabic);
+                      final history = await db.getHistory(
+                        logic.selectedCurrency,
+                        logic.selectedPeriod,
+                      );
+                      ExportService.exportToPDF(
+                        logic.selectedCurrency,
+                        history,
+                        isArabic,
+                      );
                     },
                     child: _exportItem(Icons.picture_as_pdf, 'PDF', Colors.red),
                   ),
                   _exportItem(Icons.table_view_rounded, 'Excel', Colors.green),
                   _exportItem(Icons.text_snippet_rounded, 'Text', Colors.blue),
                 ],
-              )
+              ),
             ],
           ),
         );
@@ -310,11 +497,17 @@ class _AnalysisScreenState extends State<AnalysisScreen> with AutomaticKeepAlive
       children: [
         Container(
           padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.1),
+            shape: BoxShape.circle,
+          ),
           child: Icon(icon, color: color, size: 28),
         ),
         const SizedBox(height: 8),
-        Text(label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+        Text(
+          label,
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+        ),
       ],
     );
   }

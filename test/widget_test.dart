@@ -1,30 +1,41 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-
-import 'package:mpcurrencytracker/main.dart';
+import 'package:mpcurrencytracker/Logic/prediction_provider.dart';
+import 'package:mpcurrencytracker/data/models/usd_syp_prediction.dart';
+import 'package:mpcurrencytracker/data/remote/prediction_service.dart';
+import 'package:mpcurrencytracker/ui/widgets/usd_syp_prediction_card.dart';
+import 'package:provider/provider.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  testWidgets('USD/SYP card shows loading without placeholder rates', (
+    tester,
+  ) async {
+    final provider = PredictionProvider(api: _PendingApi());
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
-
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: provider,
+        child: const MaterialApp(
+          locale: Locale('en'),
+          home: Scaffold(body: UsdSypPredictionCard()),
+        ),
+      ),
+    );
+    unawaited(provider.loadPrediction());
     await tester.pump();
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(
+      find.text('Loading USD/SYP prediction from the server...'),
+      findsOneWidget,
+    );
+    expect(find.text('0.0'), findsNothing);
   });
+}
+
+class _PendingApi implements UsdSypPredictionApi {
+  @override
+  Future<UsdSypPrediction> fetchNextDayPrediction() =>
+      Completer<UsdSypPrediction>().future;
 }

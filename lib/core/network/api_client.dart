@@ -10,16 +10,19 @@ class ApiClient {
   ApiClient(this.client);
 
   final Map<String, String> _defaultHeaders = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     'Accept': 'application/json',
   };
 
-  Future<Either<Failure, dynamic>> get(String url, {Map<String, String>? headers}) async {
+  Future<Either<Failure, dynamic>> get(
+    String url, {
+    Map<String, String>? headers,
+  }) async {
     try {
-      final response = await client.get(
-        Uri.parse(url),
-        headers: headers ?? _defaultHeaders,
-      ).timeout(const Duration(seconds: 10));
+      final response = await client
+          .get(Uri.parse(url), headers: headers ?? _defaultHeaders)
+          .timeout(const Duration(seconds: 10));
 
       return _handleResponse(response);
     } on SocketException {

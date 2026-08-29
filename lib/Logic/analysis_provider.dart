@@ -1,67 +1,99 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
-import 'dart:math';
 import '../data/remote/currency_service.dart';
+import '../data/remote/prediction_service.dart';
+import '../data/models/usd_syp_prediction.dart';
 import '../data/local/database_helper.dart';
 
 class AnalysisProvider extends ChangeNotifier {
   final CurrencyService _service = CurrencyService();
+  final PredictionService _predictionService = PredictionService();
   final DatabaseHelper _dbHelper = DatabaseHelper();
-  
+
   String _selectedPeriod = 'Month';
   String _selectedCurrency = 'USD';
   List<FlSpot> _chartData = [];
-  bool _isLoading = true;
+  List<DateTime> _chartTimestamps = [];
+  bool _isLoading = false;
+  bool _hasLoaded = false;
   double _currentPrice = 0.0;
   double _min = 0.0;
   double _max = 0.0;
   double _average = 0.0;
+  double? _predictedPrice;
+  String? _dataMessage;
 
   String get selectedPeriod => _selectedPeriod;
   String get selectedCurrency => _selectedCurrency;
   List<FlSpot> get chartData => _chartData;
+  List<DateTime> get chartTimestamps => _chartTimestamps;
   bool get isLoading => _isLoading;
+  bool get hasChart => _chartData.length >= 2;
+  bool get hasPrediction => _predictedPrice != null;
   double get currentPrice => _currentPrice;
   double get min => _min;
   double get max => _max;
   double get average => _average;
+  double? get predictedPrice => _predictedPrice;
+  String? get dataMessage => _dataMessage;
+
+  Future<void> ensureLoaded() async {
+    if (_hasLoaded) return;
+    _hasLoaded = true;
+    await loadData();
+  }
 
   void setCurrency(String currency) {
+    if (_selectedCurrency == currency) return;
     _selectedCurrency = currency;
     loadData();
   }
 
   void setPeriod(String period) {
+    if (_selectedPeriod == period) return;
     _selectedPeriod = period;
     loadData();
   }
 
   Future<void> loadData() async {
     _isLoading = true;
+    _dataMessage = null;
     notifyListeners();
 
     try {
-      // 1. جلب السعر الحالي الحقيقي من المصدر
+      if (_selectedCurrency == 'USD' && _selectedPeriod == 'Year') {
+        final datasetHistory = await _predictionService.fetchYearHistory();
+        _buildChartFromDataset(datasetHistory);
+        _calculatePrediction();
+        _isLoading = false;
+        notifyListeners();
+        return;
+      }
+
       final apiResult = await _service.fetchLatestRates(all: true);
       await apiResult.fold(
-        (failure) async => debugPrint('Analysis API Error: ${failure.message}'),
+        (failure) async {
+          _dataMessage = failure.message;
+          debugPrint('Analysis API Error: ${failure.message}');
+        },
         (rates) async {
-          if (rates.isNotEmpty) {
-            final current = rates.firstWhere((r) => r.code == _selectedCurrency, orElse: () => rates.first);
+          final matches = rates.where((rate) => rate.code == _selectedCurrency);
+          if (matches.isNotEmpty) {
+            final current = matches.first;
             _currentPrice = current.rate;
-            // حفظ السعر لتغذية قاعدة البيانات الحقيقية مستقبلاً
             await _dbHelper.saveRates([current.toMap()]);
           }
         },
       );
 
-      // 2. قراءة البيانات المخزنة
-      final history = await _dbHelper.getHistory(_selectedCurrency, _selectedPeriod);
-      
-      // 3. منطق توليد الرسم البياني الاحترافي (بناءً على السعر الحقيقي)
-      _generateDynamicChart(history);
-
+      final history = await _dbHelper.getHistory(
+        _selectedCurrency,
+        _selectedPeriod,
+      );
+      _buildChartFromHistory(history);
+      _calculatePrediction();
     } catch (e) {
+      _dataMessage = e.toString();
       debugPrint('General Analysis Error: $e');
     }
 
@@ -69,40 +101,57 @@ class AnalysisProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _generateDynamicChart(List<Map<String, dynamic>> realHistory) {
-    List<FlSpot> spots = [];
-    final random = Random();
-    
-    int pointsCount = 24; // Default for Day (Hours)
-    double xOffset = 0;
-    
-    if (_selectedPeriod == 'Day') {
-      pointsCount = 24; // 0 to 23 hours
-      xOffset = 0;
-    } else if (_selectedPeriod == 'Month') {
-      pointsCount = 30; // 1 to 30 days
-      xOffset = 1;
-    } else if (_selectedPeriod == 'Year') {
-      pointsCount = 12; // 1 to 12 months
-      xOffset = 1;
-    }
-    
-    double volatility = _selectedPeriod == 'Day' ? 0.005 : (_selectedPeriod == 'Month' ? 0.04 : 0.15);
-    double startPrice = _currentPrice * (1 + (random.nextDouble() > 0.5 ? volatility : -volatility));
-    
-    for (int i = 0; i < pointsCount; i++) {
-      double factor = i / (pointsCount - 1);
-      double noise = (random.nextDouble() - 0.5) * 2 * (volatility * _currentPrice * 0.3);
-      double y = startPrice + (graphFunction(factor) * (_currentPrice - startPrice)) + noise;
-      
-      if (i == pointsCount - 1) y = _currentPrice;
-      
-      // Set X as specified: Hour, Day, or Month number
-      spots.add(FlSpot(i.toDouble() + xOffset, y));
+  void _buildChartFromDataset(List<UsdSypHistoryPoint> history) {
+    _chartTimestamps = history.map((item) => item.date).toList();
+    _chartData = List.generate(
+      history.length,
+      (index) => FlSpot(index.toDouble(), history[index].rate),
+    );
+    _currentPrice = history.last.rate;
+    _calculateStats(_chartData);
+  }
+
+  void _calculatePrediction() {
+    // Predictions are provided only by the Backend. A generic local forecast
+    // would mix regular rate analysis with the dedicated USD/SYP model.
+    _predictedPrice = null;
+  }
+
+  void _buildChartFromHistory(List<Map<String, dynamic>> history) {
+    final observations = <DateTime, double>{};
+    for (final row in history) {
+      final timestamp = DateTime.tryParse(row['timestamp']?.toString() ?? '');
+      final rawRate = row['rate'];
+      final rate = rawRate is num
+          ? rawRate.toDouble()
+          : double.tryParse(rawRate?.toString() ?? '');
+      if (timestamp != null && rate != null && rate.isFinite && rate > 0) {
+        observations[timestamp] = rate;
+      }
     }
 
-    _chartData = spots;
-    
+    final entries = observations.entries.toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+    _chartTimestamps = entries.map((entry) => entry.key).toList();
+    _chartData = List.generate(
+      entries.length,
+      (index) => FlSpot(index.toDouble(), entries[index].value),
+    );
+
+    if (_chartData.isNotEmpty) {
+      _currentPrice = _chartData.last.y;
+    }
+    _calculateStats(_chartData);
+  }
+
+  void _calculateStats(List<FlSpot> spots) {
+    if (spots.isEmpty) {
+      _min = 0;
+      _max = 0;
+      _average = 0;
+      return;
+    }
+
     double sum = 0;
     _min = spots[0].y;
     _max = spots[0].y;
@@ -113,9 +162,5 @@ class AnalysisProvider extends ChangeNotifier {
       if (spot.y > _max) _max = spot.y;
     }
     _average = sum / spots.length;
-  }
-
-  double graphFunction(double x) {
-    return x * x * (3 - 2 * x);
   }
 }
